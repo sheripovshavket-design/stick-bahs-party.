@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Stick Bash Party</title>
+<style>
+:root{--bg:#101426;--panel:#1c2440;--text:#f4f7ff;--muted:#aeb9d8}
+*{box-sizing:border-box} body{margin:0;background:radial-gradient(circle at top,#28345c,#101426 65%);color:var(--text);font-family:system-ui,Arial,sans-serif;min-height:100vh;touch-action:manipulation}
+main{max-width:1000px;margin:auto;padding:16px} h1{margin:4px 0;font-size:clamp(28px,6vw,48px);letter-spacing:-1px} .sub{color:var(--muted);margin:0 0 14px}
+.panel{background:#1a2240dd;border:1px solid #46517b;border-radius:18px;padding:14px;box-shadow:0 12px 40px #0004}
+.top{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}.controls{display:flex;gap:8px;flex-wrap:wrap}
+button,select{background:#34436d;color:white;border:1px solid #6375a7;border-radius:12px;padding:11px 14px;font-weight:700;font-size:14px}
+button:active{transform:scale(.97)} button.primary{background:#7c4dff;border-color:#a38aff} button:disabled{opacity:.45}
+canvas{display:block;width:100%;height:auto;aspect-ratio:16/9;background:#0d142b;border-radius:14px;margin-top:12px;border:1px solid #46517b}
+.info{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0}.pill{padding:8px 12px;background:#293354;border-radius:999px;font-weight:700}
+.instructions{color:var(--muted);font-size:13px;line-height:1.5;margin-top:10px}
+.touch{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px}.touch button{padding:15px 4px;font-size:20px}
+@media(min-width:700px){.touch{max-width:500px}.touch button{font-size:16px}}
+</style>
+</head>
+<body>
+<main>
+  <div class="top"><div><h1>STICK BASH PARTY</h1><p class="sub">Мини-игры для друзей • до 4 игроков на одном экране</p></div>
+  <div class="controls"><select id="mode" aria-label="Режим"><option value="coins">Сбор монет</option><option value="arena">Арена</option><option value="race">Гонки</option><option value="goal">Футбол</option></select><select id="players" aria-label="Игроки"><option value="2">2 игрока</option><option value="3">3 игрока</option><option value="4">4 игрока</option></select><button id="start" class="primary">Новая игра</button></div></div>
+  <div class="panel">
+    <div class="info"><span class="pill" id="status">Собери больше монет!</span><span class="pill" id="timer">Время: 30</span><span class="pill" id="scores">🔴 0 · 🔵 0</span></div>
+    <canvas id="game" width="960" height="540"></canvas>
+    <div class="touch" id="touch"></div>
+    <div class="instructions">
+      Управление: игрок 1 — WASD, игрок 2 — стрелки, игрок 3 — IJKL, игрок 4 — TFGH. На телефоне нажми имя игрока в панели кнопок, затем используй стрелки и действие.
+      <br>Режимы: монеты — собирай монеты; арена — толкай соперников; гонки — первым доберись до финиша; футбол — забивай мяч в ворота. Это оригинальная фан-игра с собственными простыми механиками и графикой.
+    </div>
+  </div>
+</main>
+<script>
+(()=>{
+const canvas=document.getElementById('game'),ctx=canvas.getContext('2d');
+const modeEl=document.getElementById('mode'),playersEl=document.getElementById('players'),startBtn=document.getElementById('start');
+const statusEl=document.getElementById('status'),timerEl=document.getElementById('timer'),scoresEl=document.getElementById('scores'),touch=document.getElementById('touch');
+const W=960,H=540, colors=['#ff5364','#4eb7ff','#ffd84d','#7df0a2'];
+const names=['Игрок 1','Игрок 2','Игрок 3','Игрок 4'];
+const keys=[{up:'w',down:'s',left:'a',right:'d',act:' '},{up:'arrowup',down:'arrowdown',left:'arrowleft',right:'arrowright',act:'enter'},{up:'i',down:'k',left:'j',right:'l',act:'u'},{up:'t',down:'g',left:'f',right:'h',act:'y'}];
+let players=[],coins=[],ball=null,mode='coins',time=30,playing=true,last=0,winnerText='',finishLine=850;
+const down={};
+window.addEventListener('keydown',e=>{down[e.key.toLowerCase()]=true;if(['arrowup','arrowdown','arrowleft','arrowright',' '].includes(e.key.toLowerCase()))e.preventDefault()});
+window.addEventListener('keyup',e=>down[e.key.toLowerCase()]=false);
+function reset(){
+ mode=modeEl.value;const n=+playersEl.value;time=30;playing=true;winnerText='';
+ players=Array.from({length:n},(_,i)=>({x:120+(i%2)*70,y:130+i*75,vx:0,vy:0,r:17,score:0,coins:0,finish:false,color:colors[i],keys:keys[i],name:names[i]}));
+ coins=[];for(let i=0;i<14;i++)coins.push({x:100+Math.random()*760,y:70+Math.random()*400,r:9,taken:false});
+ ball={x:W/2,y:H/2,vx:0,vy:0,r:13};
+ statusEl.textContent=({coins:'Собирай монеты!',arena:'Вытолкни соперников с арены!',race:'Доберись до финиша первым!',goal:'Забей гол в ворота соперника!'})[mode];
+ touch.innerHTML='';
+ players.forEach((p,i)=>{let b=document.createElement('button');b.style.borderColor=p.color;b.textContent=p.name+' • кнопки';b.onclick=()=>{document.querySelectorAll('.touch button').forEach(x=>x.style.filter='');b.style.filter='brightness(1.5)';touch.dataset.active=i};touch.appendChild(b)});
+ ['↑','←','↓','→'].forEach((label,j)=>{let b=document.createElement('button');b.textContent=label;b.onclick=()=>{let i=+(touch.dataset.active||0),p=players[i];if(j===0)p.y-=22;if(j===1)p.x-=22;if(j===2)p.y+=22;if(j===3)p.x+=22;clamp(p)};touch.appendChild(b)});
+ draw();
+}
+function clamp(p){p.x=Math.max(25,Math.min(W-25,p.x));p.y=Math.max(50,Math.min(H-25,p.y))}
+function update(dt){
+ if(!playing)return;
+ time-=dt;if(time<=0){time=0;playing=false;let best=Math.max(...players.map(p=>mode==='coins'?p.coins:mode==='race'?(p.finish?1:0):p.score));let winners=players.filter(p=>(mode==='coins'?p.coins:mode==='race'?(p.finish?1:0):p.score)===best);winnerText=best===0?'Раунд завершён!':'Победитель: '+winners.map(p=>p.name).join(', ');statusEl.textContent=winnerText}
+ players.forEach((p,i)=>{
+  const k=p.keys,s=210;
+  let dx=(down[k.right]?1:0)-(down[k.left]?1:0),dy=(down[k.down]?1:0)-(down[k.up]?1:0);
+  if(mode==='race'){p.x+=dx*s*dt;p.y+=dy*s*dt;if(p.x>finishLine)p.finish=true}
+  else {p.vx+=dx*s*dt*3;p.vy+=dy*s*dt*3;p.vx*=Math.pow(.04,dt);p.vy*=Math.pow(.04,dt);p.x+=p.vx*dt;p.y+=p.vy*dt}
+  clamp(p);
+  if(mode==='coins')coins.forEach(c=>{if(!c.taken&&Math.hypot(p.x-c.x,p.y-c.y)<p.r+c.r){c.taken=true;p.coins++}});
+  if(mode==='arena'){if(p.x<45||p.x>W-45||p.y<65||p.y>H-35){p.score--;p.x=W/2+(Math.random()-.5)*60;p.y=H/2+(Math.random()-.5)*60;p.vx=p.vy=0}}
+  if(mode==='goal'&&Math.hypot(p.x-ball.x,p.y-ball.y)<p.r+ball.r+4){let a=Math.atan2(ball.y-p.y,ball.x-p.x);ball.vx+=Math.cos(a)*220;ball.vy+=Math.sin(a)*220}
+ });
+ if(mode==='arena')for(let i=0;i<players.length;i++)for(let j=i+1;j<players.length;j++){let a=players[i],b=players[j],d=Math.hypot(a.x-b.x,a.y-b.y);if(d<a.r+b.r+2&&d>0){let nx=(b.x-a.x)/d,ny=(b.y-a.y)/d;a.vx-=nx*90;b.vx+=nx*90;a.vy-=ny*90;b.vy+=ny*90}}
+ if(mode==='goal'){ball.x+=ball.vx*dt;ball.y+=ball.vy*dt;ball.vx*=Math.pow(.12,dt);ball.vy*=Math.pow(.12,dt);if(ball.y<55||ball.y>H-25)ball.vy*=-.8;if(ball.x<25||ball.x>W-25)ball.vx*=-.8;if(ball.x<45&&ball.y>190&&ball.y<350){players[players.length-1].score++;ball.x=W/2;ball.y=H/2;ball.vx=ball.vy=0}if(ball.x>W-45&&ball.y>190&&ball.y<350){players[0].score++;ball.x=W/2;ball.y=H/2;ball.vx=ball.vy=0}}
+ if(mode==='race'&&players.some(p=>p.finish)){playing=false;statusEl.textContent='Победитель: '+players.find(p=>p.finish).name}
+ timerEl.textContent='Время: '+Math.ceil(time);
+ scoresEl.textContent=players.map((p,i)=>['🔴','🔵','🟡','🟢'][i]+' '+(mode==='coins'?p.coins:mode==='race'?(p.finish?'🏁':'—'):p.score)).join(' · ');
+}
+function draw(){
+ ctx.clearRect(0,0,W,H);
+ ctx.fillStyle='#111a35';ctx.fillRect(0,0,W,H);
+ ctx.strokeStyle='#25335b';ctx.lineWidth=1;for(let x=0;x<W;x+=40){ctx.beginPath();ctx.moveTo(x,45);ctx.lineTo(x,H);ctx.stroke()}for(let y=45;y<H;y+=40){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke()}
+ ctx.fillStyle='#27375c';ctx.fillRect(0,0,W,45);ctx.fillStyle='#dfe7ff';ctx.font='bold 18px system-ui';ctx.fillText(({coins:'МОНЕТЫ',arena:'АРЕНА',race:'ГОНКА',goal:'ФУТБОЛ'})[mode],22,29);
+ if(mode==='race'){ctx.strokeStyle='#fff';ctx.setLineDash([12,10]);ctx.beginPath();ctx.moveTo(finishLine,45);ctx.lineTo(finishLine,H);ctx.stroke();ctx.setLineDash([]);ctx.fillText('ФИНИШ',finishLine-40,70)}
+ if(mode==='goal'){ctx.fillStyle='#4eb7ff';ctx.fillRect(0,190,20,160);ctx.fillStyle='#ff5364';ctx.fillRect(W-20,190,20,160);ctx.strokeStyle='#b4c4ef';ctx.beginPath();ctx.arc(W/2,H/2,75,0,Math.PI*2);ctx.stroke();ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(ball.x,ball.y,ball.r,0,Math.PI*2);ctx.fill()}
+ if(mode==='coins')coins.forEach(c=>{if(!c.taken){ctx.fillStyle='#ffd84d';ctx.beginPath();ctx.arc(c.x,c.y,c.r,0,Math.PI*2);ctx.fill();ctx.strokeStyle='#fff0a0';ctx.lineWidth=3;ctx.stroke()}});
+ players.forEach(p=>{ctx.strokeStyle=p.color;ctx.fillStyle=p.color;ctx.lineWidth=6;ctx.lineCap='round';ctx.beginPath();ctx.arc(p.x,p.y-10,9,0,Math.PI*2);ctx.stroke();ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(p.x,p.y+22);ctx.moveTo(p.x,p.y+5);ctx.lineTo(p.x-12,p.y+14);ctx.moveTo(p.x,p.y+5);ctx.lineTo(p.x+12,p.y+14);ctx.moveTo(p.x,p.y+22);ctx.lineTo(p.x-10,p.y+36);ctx.moveTo(p.x,p.y+22);ctx.lineTo(p.x+10,p.y+36);ctx.stroke();ctx.fillStyle='#fff';ctx.font='bold 13px system-ui';ctx.textAlign='center';ctx.fillText(p.name.replace('Игрок ','P'),p.x,p.y-28);ctx.textAlign='left'});
+ if(!playing){ctx.fillStyle='#050916cc';ctx.fillRect(0,0,W,H);ctx.fillStyle='#fff';ctx.textAlign='center';ctx.font='bold 38px system-ui';ctx.fillText(winnerText||'Раунд завершён!',W/2,H/2);ctx.font='18px system-ui';ctx.fillText('Нажми «Новая игра», чтобы сыграть ещё',W/2,H/2+42);ctx.textAlign='left'}
+}
+function loop(t){let dt=Math.min(.04,(t-last)/1000||0);last=t;update(dt);draw();requestAnimationFrame(loop)}
+startBtn.addEventListener('click',reset);reset();requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
